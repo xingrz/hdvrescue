@@ -1,4 +1,4 @@
-"""hdvrescue CLI: scan | plan | build | verify | recover | dedup."""
+"""hdvrescue CLI: scan | plan | build | report | verify | recover | dedup."""
 
 import argparse
 import os
@@ -11,6 +11,7 @@ from . import build as buildmod
 from . import verify as verifymod
 from . import recover as recovermod
 from . import dedup as dedupmod
+from . import planreport as reportmod
 from . import model
 
 
@@ -212,6 +213,10 @@ def cmd_dedup(args):
     return dedupmod.main([args.report] + (["--md5"] if args.md5 else []))
 
 
+def cmd_report(args):
+    return reportmod.main([args.plan] + (["-o", args.output] if args.output else []))
+
+
 def cmd_recover(args):
     if not args.from_plan and not args.from_report:
         for p in args.inputs:
@@ -269,6 +274,13 @@ def build_parser():
     bp.add_argument("--on-exist", choices=("error", "skip", "suffix"),
                     default="error", help="when an output exists (default error)")
     bp.set_defaults(func=cmd_build)
+
+    rpt = sub.add_parser(
+        "report", help="plan.json -> human-readable Markdown")
+    rpt.add_argument("plan", help="plan.json from plan")
+    rpt.add_argument("-o", "--output",
+                     help="Markdown path (default <plan>.md; '-' for stdout)")
+    rpt.set_defaults(func=cmd_report)
 
     dp = sub.add_parser(
         "dedup", help="byte-verify duplicate fragments in a report.json")

@@ -76,6 +76,7 @@ and `build` honours it.
 | `scan INPUT… -o report.json` | Describe each source as byte-precise spans + gaps. |
 | `plan report.json -o plan.json` | Propose merges and splits into a hand-editable plan. |
 | `build plan.json -o out/` | Materialize the plan into final `.m2t` files (reads `report.json` beside the plan, or `--report`). |
+| `report plan.json` | Render the plan as a human-readable Markdown summary (writes `<plan>.md`; `-o -` for stdout). |
 | `verify FILE` | Is the Sony AUX recording timecode still readable? Exit `0` yes, `1` no, `2` error. |
 | `recover INPUT… -o out/` | `scan → plan → build` in one pass; `report.json`/`plan.json` are saved in `out/`. |
 | `dedup report.json` | Byte-verify duplicate fragments (same footage carved twice): reports which are `contained`/`identical` (safe to drop) vs `diverges`. |

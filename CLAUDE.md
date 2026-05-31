@@ -26,6 +26,7 @@ at `build`.
 scan   sources              -> report.json   spans + gaps tiling [0,size) exactly
 plan   report.json          -> plan.json     merge/split, human-editable
 build  plan.json + sources  -> out/*.m2t     the only stage that copies bytes
+report plan.json            -> <plan>.md     human-readable Markdown summary
 verify a .m2t/.mpeg          -> exit 0/1/2    AUX-timecode survival
 dedup  report.json          -> stdout        byte-verify duplicate fragments
 recover = scan -> plan -> build (+ --verify)

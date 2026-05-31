@@ -4,6 +4,11 @@
 files. It is designed to be **edited by hand** before building — that is the whole
 point of having a plan step.
 
+> For a readable overview of what a plan decided (outputs, the timecode and byte
+> range of every member, why seams were merged or split, what went unplaced), run
+> `hdvrescue report plan.json` — it renders this file as Markdown without opening
+> any source.
+
 ```jsonc
 {
   "plan_version": 1,

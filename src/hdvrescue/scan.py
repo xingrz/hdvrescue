@@ -287,11 +287,17 @@ class _SpanCtx:
         self.__init__()
 
 
-def _walk_source(mv, size, framing, params):
+_PROGRESS_STEP = 16 * 1024 * 1024   # report scan progress at most this often
+
+
+def _walk_source(mv, size, framing, params, progress=None):
     """Yield ``("span", start, end, terminated_by, inherited_pmt)`` and
-    ``("gap", start, end, kind, reason)`` tuples tiling ``[0, size)``."""
+    ``("gap", start, end, kind, reason)`` tuples tiling ``[0, size)``.
+
+    ``progress(pos)`` is called periodically with the current byte offset."""
     stride = framing["stride"]
     first_sync = framing["first_sync"]
+    next_report = 0
     min_run = params["min_run"]
     jump_ticks = int(params["pcr_jump_sec"] * PCR_HZ)
     aux_slack = params["aux_boundary_sec"]
@@ -327,6 +333,10 @@ def _walk_source(mv, size, framing, params):
         aux_first = None
 
     while pos + TS <= size:
+        if progress is not None and pos >= next_report:
+            progress(pos)
+            next_report = pos + _PROGRESS_STEP
+
         if mv[pos] != 0x47:
             # Sync lost — close span, find next run.
             if pos > span_start:
@@ -488,7 +498,7 @@ def _walk_source(mv, size, framing, params):
 # Per-source and top-level scan
 # ---------------------------------------------------------------------------
 
-def scan_source(path, source_id, params):
+def scan_source(path, source_id, params, on_progress=None):
     size = os.path.getsize(path)
     sr = model.SourceReport(id=source_id, path=os.path.abspath(path), size=size,
                             hash=None, framing=None, needs_attention=False,
@@ -533,8 +543,9 @@ def scan_source(path, source_id, params):
             _finalize_summary(sr)
             return sr
 
+        prog = (lambda pos: on_progress(path, pos, size)) if on_progress else None
         span_idx = 0
-        for item in _walk_source(mv, size, framing, params):
+        for item in _walk_source(mv, size, framing, params, progress=prog):
             if item[0] == "gap":
                 _, gs, ge, kind, reason = item
                 if ge > gs:
@@ -562,6 +573,8 @@ def scan_source(path, source_id, params):
         mv.release()
         mm.close()
 
+    if on_progress:
+        on_progress(path, size, size)   # finalize the bar at 100%
     _verify_tiling(sr)
     _finalize_summary(sr)
     return sr
@@ -595,9 +608,12 @@ def _finalize_summary(sr):
     }
 
 
-def scan(paths, params=None):
+def scan(paths, params=None, on_progress=None):
+    """Scan ``paths`` into a Report. ``on_progress(path, done, total)`` is called
+    periodically per source for progress reporting."""
     p = dict(DEFAULT_PARAMS)
     if params:
         p.update(params)
-    sources = [scan_source(path, i, p) for i, path in enumerate(paths)]
+    sources = [scan_source(path, i, p, on_progress=on_progress)
+               for i, path in enumerate(paths)]
     return model.Report(model.REPORT_VERSION, p, sources)

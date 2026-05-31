@@ -56,7 +56,7 @@ def _marker_for(span):
     return pcr_pid, cc
 
 
-def _write_verbatim(out, mv, start, end):
+def _write_verbatim(out, mv, start, end, progress=None):
     """Bulk byte-copy [start,end). Byte-exact, fast."""
     pos = start
     chunk = 8192 * TS
@@ -64,12 +64,15 @@ def _write_verbatim(out, mv, start, end):
         n = min(chunk, end - pos)
         out.write(mv[pos:pos + n])
         pos += n
+        if progress:
+            progress(n)
 
 
-def _write_cc_fixed(out, mv, start, end, last_cc):
+def _write_cc_fixed(out, mv, start, end, last_cc, progress=None):
     """Per-packet copy, rewriting continuity counters to continue ``last_cc``."""
     offset = {}
     pos = start
+    pending = 0
     while pos < end:
         pkt = mv[pos:pos + TS]
         if pkt[0] != 0x47:
@@ -86,6 +89,12 @@ def _write_cc_fixed(out, mv, start, end, last_cc):
             last_cc[pid] = new_cc
         out.write(pkt)
         pos += TS
+        pending += TS
+        if progress and pending >= 8192 * TS:
+            progress(pending)
+            pending = 0
+    if progress and pending:
+        progress(pending)
 
 
 def _track_cc(mv, start, end, last_cc):
@@ -99,14 +108,26 @@ def _track_cc(mv, start, end, last_cc):
         pos += TS
 
 
-def build_output(output, report, mmaps, outdir, on_exist="error"):
-    """Materialize one :class:`model.Output`. Returns a result dict."""
+def build_output(output, report, mmaps, outdir, on_exist="error", on_progress=None):
+    """Materialize one :class:`model.Output`. Returns a result dict.
+
+    ``on_progress(name, done, total)`` is called as bytes are written."""
     span_index = report.span_index()
     members = output.members
     confs = [span_index[m.span].confidence for m in members if m.span in span_index]
     if "low" in confs:
         raise BuildError("output %s references a low-confidence span; refusing"
                          % output.name)
+
+    total = sum(span_index[m.span].length for m in members if m.span in span_index)
+    total += TS * sum(1 for m in members
+                      if m.join and m.join.treatment == "discontinuity-marker")
+    written = [0]
+
+    def bump(n):
+        written[0] += n
+        if on_progress:
+            on_progress(output.name, written[0], total)
 
     final_path = os.path.join(outdir, output.name)
     if os.path.exists(final_path):
@@ -141,11 +162,14 @@ def build_output(output, report, mmaps, outdir, on_exist="error"):
                 if mk is not None:
                     out.write(ts.make_disc_marker(*mk))
                     markers += 1
+                    bump(TS)
 
             if treatment == "cc-fix":
-                _write_cc_fixed(out, mv, span.byte_start, span.byte_end, last_cc)
+                _write_cc_fixed(out, mv, span.byte_start, span.byte_end, last_cc,
+                                progress=bump)
             else:
-                _write_verbatim(out, mv, span.byte_start, span.byte_end)
+                _write_verbatim(out, mv, span.byte_start, span.byte_end,
+                                progress=bump)
                 if needs_cc:
                     _track_cc(mv, span.byte_start, span.byte_end, last_cc)
 
@@ -165,8 +189,10 @@ def build_output(output, report, mmaps, outdir, on_exist="error"):
             "timecode": tstamp, "verified": present}
 
 
-def build(plan, report, outdir, on_exist="error"):
-    """Materialize every enabled output of ``plan`` into ``outdir``."""
+def build(plan, report, outdir, on_exist="error", on_progress=None):
+    """Materialize every enabled output of ``plan`` into ``outdir``.
+
+    ``on_progress(name, done, total)`` is called as each output is written."""
     os.makedirs(outdir, exist_ok=True)
     # mmap each source once (read-only).
     mmaps = {}
@@ -181,7 +207,8 @@ def build(plan, report, outdir, on_exist="error"):
         for output in plan.outputs:
             if not output.enabled:
                 continue
-            results.append(build_output(output, report, mmaps, outdir, on_exist))
+            results.append(build_output(output, report, mmaps, outdir, on_exist,
+                                        on_progress=on_progress))
         return results
     finally:
         for mv in mmaps.values():

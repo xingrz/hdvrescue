@@ -17,6 +17,66 @@ def _err(msg):
     print("error: %s" % msg, file=sys.stderr)
 
 
+# Only show a progress bar for work large enough to be worth it (keeps small
+# files and the test suite quiet).
+_PROGRESS_MIN_BYTES = 64 * 1024 * 1024
+
+
+class _Bar:
+    """A single progress line. Live (carriage-return) on a TTY; periodic 10%
+    lines otherwise, so redirected logs stay readable."""
+
+    def __init__(self, label, total):
+        self.label = label
+        self.total = max(1, total)
+        self.tty = sys.stderr.isatty()
+        self.shown = -1
+
+    def update(self, done, total):
+        self.total = max(1, total)
+        pct = min(100, int(100 * done / self.total))
+        mb_done, mb_total = done >> 20, self.total >> 20
+        if self.tty:
+            if pct == self.shown:
+                return
+            sys.stderr.write("\r  %s  %3d%%  (%d/%d MB)" %
+                             (self.label, pct, mb_done, mb_total))
+            sys.stderr.flush()
+            self.shown = pct
+        else:
+            step = (pct // 10) * 10
+            if step > self.shown:
+                sys.stderr.write("  %s  %d%% (%d/%d MB)\n" %
+                                 (self.label, step, mb_done, mb_total))
+                self.shown = step
+
+    def finish(self):
+        if self.tty and self.shown >= 0:
+            sys.stderr.write("\r  %s  done%s\n" % (self.label, " " * 28))
+            sys.stderr.flush()
+
+
+def _make_progress():
+    """Return a callback ``(key, done, total)`` that renders one bar per key."""
+    bars = {}
+    skip = set()
+
+    def cb(key, done, total):
+        if key in skip:
+            return
+        bar = bars.get(key)
+        if bar is None:
+            if total < _PROGRESS_MIN_BYTES:
+                skip.add(key)
+                return
+            bar = bars[key] = _Bar(os.path.basename(key), total)
+        bar.update(done, total)
+        if done >= total:
+            bar.finish()
+
+    return cb
+
+
 def _add_scan_knobs(ap):
     ap.add_argument("--probe-mb", type=int, default=scanmod.DEFAULT_PARAMS["probe_mb"],
                     help="MB scanned to detect TS framing (default %(default)s)")
@@ -66,7 +126,8 @@ def cmd_scan(args):
         if not os.path.isfile(p):
             _err("no such file: %s" % p)
             return 2
-    report = scanmod.scan(args.inputs, _scan_params(args))
+    report = scanmod.scan(args.inputs, _scan_params(args),
+                          on_progress=_make_progress())
     model.save_report(report, args.output)
     for s in report.sources:
         print("%s: %d span(s), %d gap(s), %.1f%% covered%s"
@@ -115,7 +176,8 @@ def cmd_build(args):
     plan = model.load_plan(args.plan)
     report = model.load_report(report_path)
     try:
-        results = buildmod.build(plan, report, args.output, args.on_exist)
+        results = buildmod.build(plan, report, args.output, args.on_exist,
+                                 on_progress=_make_progress())
     except buildmod.BuildError as e:
         _err(str(e))
         return 2
@@ -128,7 +190,8 @@ def cmd_build(args):
                 "" if r["markers"] == 1 else "s",
                 "  -> %s" % r["timecode"] if r["timecode"] else ""),
                 file=sys.stderr)
-    print("built %d output(s) in %s/" % (len(results), args.output), file=sys.stderr)
+    print("built %d output(s) in %s/" %
+          (len(results), args.output), file=sys.stderr)
     return 0
 
 
@@ -150,7 +213,8 @@ def cmd_recover(args):
             scan_params=_scan_params(args), plan_params=_plan_params(args),
             do_verify=args.verify, from_report=args.from_report,
             from_plan=args.from_plan, on_exist=args.on_exist,
-            log=lambda m: print(m, file=sys.stderr))
+            log=lambda m: print(m, file=sys.stderr),
+            on_progress=_make_progress())
     except buildmod.BuildError as e:
         _err(str(e))
         return 2
@@ -186,7 +250,8 @@ def build_parser():
     _add_plan_knobs(pp)
     pp.set_defaults(func=cmd_plan)
 
-    bp = sub.add_parser("build", help="plan.json + report.json + sources -> out/")
+    bp = sub.add_parser(
+        "build", help="plan.json + report.json + sources -> out/")
     bp.add_argument("plan", help="plan.json from plan")
     bp.add_argument("-o", "--output", required=True, help="output directory")
     bp.add_argument("--report", help="report.json (default: beside the plan)")

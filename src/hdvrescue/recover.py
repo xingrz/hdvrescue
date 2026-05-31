@@ -12,7 +12,8 @@ from . import scan, plan as planmod, build as buildmod, verify, model
 
 
 def recover(paths, outdir, scan_params=None, plan_params=None, do_verify=False,
-            from_report=None, from_plan=None, on_exist="error", log=None):
+            from_report=None, from_plan=None, on_exist="error", log=None,
+            on_progress=None):
     log = log or (lambda *_: None)
     os.makedirs(outdir, exist_ok=True)
     report_path = os.path.join(outdir, "report.json")
@@ -28,7 +29,7 @@ def recover(paths, outdir, scan_params=None, plan_params=None, do_verify=False,
             log("[recover] loaded report %s" % from_report)
         else:
             log("[scan] %d source(s)..." % len(paths))
-            report = scan.scan(paths, scan_params)
+            report = scan.scan(paths, scan_params, on_progress=on_progress)
             model.save_report(report, report_path)
             spans = sum(len(s.spans) for s in report.sources)
             gaps = sum(len(s.gaps) for s in report.sources)
@@ -41,7 +42,8 @@ def recover(paths, outdir, scan_params=None, plan_params=None, do_verify=False,
 
     log("[build] writing %d output(s) to %s/" % (
         sum(1 for o in plan_obj.outputs if o.enabled), outdir))
-    results = buildmod.build(plan_obj, report, outdir, on_exist)
+    results = buildmod.build(plan_obj, report, outdir, on_exist,
+                             on_progress=on_progress)
 
     if do_verify:
         for r in results:

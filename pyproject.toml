@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hdvrescue"
+version = "0.1.0"
+description = "Non-destructive, report-driven recovery of damaged HDV (Sony MPEG-TS) tape captures"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "XiNGRZ" }]
+keywords = ["hdv", "mpeg-ts", "recovery", "sony", "m2t", "data-recovery"]
+classifiers = [
+    "Topic :: Multimedia :: Video",
+    "Topic :: System :: Recovery Tools",
+    "Programming Language :: Python :: 3",
+]
+# Stdlib only. No third-party dependencies, ever. No ffmpeg.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/xingrz/hdvrescue"
+
+[project.scripts]
+hdvrescue = "hdvrescue.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hdvrescue"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/hdvrescue", "tests", "docs", "README.md", "CLAUDE.md"]

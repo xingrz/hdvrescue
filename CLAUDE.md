@@ -27,6 +27,7 @@ scan   sources              -> report.json   spans + gaps tiling [0,size) exactl
 plan   report.json          -> plan.json     merge/split, human-editable
 build  plan.json + sources  -> out/*.m2t     the only stage that copies bytes
 verify a .m2t/.mpeg          -> exit 0/1/2    AUX-timecode survival
+dedup  report.json          -> stdout        byte-verify duplicate fragments
 recover = scan -> plan -> build (+ --verify)
 ```
 
@@ -71,6 +72,19 @@ single source of truth for packet parsing is deliberate.
   another session the recovery tool spliced in), not corruption. `plan` separates
   it into its own output by recording date; it must never be welded into the
   intended clip.
+- **Pause/resume is not a split.** Within one source, byte-adjacent spans share a
+  continuous capture even though the AUX timecode jumps at the pause — `plan`
+  keeps them in one output (`verbatim`). It only splits same-day footage when the
+  PCR clock proves a merge would be un-seekable: a PCR reset or a leap beyond
+  `--max-pcr-jump-sec` means a separate session, so the scrub bar's duration
+  estimate would break (`pcr-discontinuity`). Cross-source seams can't use PCR
+  (independent clocks), so there the AUX recording timecode gates the merge.
+- **Duplicates are good, but verify before dropping.** The recovery tool can carve
+  the same footage twice. `dedup` groups spans by shared AUX start timecode and
+  reads only those byte ranges to classify each against the longest copy:
+  `identical` / `contained` (a byte-prefix — drop the shorter safely) / `diverges
+  at byte N` (not the same capture past there — keep both). It reports only; the
+  user disables redundant members in `plan.json`.
 - **PMTs can span packets.** Parse them via `psi.SectionAssembler`, never from a
   single packet, or a multi-packet PMT's `0xA1` declaration can be missed.
 

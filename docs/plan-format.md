@@ -70,14 +70,33 @@ by `span` id, so editing those echoes has no effect.
 - **Recover an `unplaced` span:** add it as a member of some output.
 - **Rename:** change `name`.
 
+## How spans are grouped into outputs
+
+`plan` keeps a recording **whole** while it stays *seekable*, and splits where a
+merge would not be:
+
+- **Same source, byte-adjacent** (`B.start == A.end`) → `verbatim`. The bytes are
+  already contiguous in the capture, so copying them reproduces a range that
+  already played — a camera pause/resume (the AUX timecode jumps but the capture
+  ran on) is kept together, not split.
+- **Same source, with a corruption gap** → merged with a `discontinuity-marker`
+  **only while the PCR clock stays seekable**: monotonic forward within
+  `--max-pcr-jump-sec` (default 30 s). A PCR **reset** or a large leap means a
+  separate recording session, which is split (`pcr-discontinuity`) — merging it
+  would make the player's duration bogus and the scrub bar un-draggable.
+- **Cross-source** (a recording carved across files) → merged with a marker only
+  when the AUX recording timecode agrees within `--max-chain-sec`. Capture files
+  carry independent PCR clocks, so seek-continuity can't be proven here.
+- **Different recording day** → always split (`aux-date-mismatch`).
+
 ## Join treatments
 
-- **`verbatim`** — copy bytes unchanged. Used for a single-span output (and any
-  seam already perfectly continuous).
+- **`verbatim`** — copy bytes unchanged. Used for the first member and for every
+  byte-adjacent same-source seam (contiguous, nothing to signal).
 - **`discontinuity-marker`** — inject one adaptation-only marker on the entered
   span's PCR PID, then copy bytes unchanged. Continuity counters are *not* forged,
-  so a real packet loss is never concealed. This is what the planner emits for
-  every join, and it is always safe.
+  so a real packet loss is never concealed. This is what the planner emits for a
+  gap or cross-source join, and it is always safe.
 - **`cc-fix`** — rewrite continuity counters to continue the previous member, no
   marker. `build` honours it for hand-edited plans, but the planner never emits it
   automatically because the report cannot prove zero packet loss across a seam.
@@ -85,6 +104,20 @@ by `span` id, so editing those echoes has no effect.
 ## `splits[].code` values
 
 Why two adjacent-in-time spans were *not* merged: `pmt-class-differs`,
-`recording-boundary`, `aux-date-mismatch`, `aux-unknown`, `aux-elapsed-mismatch`,
-`no-pmt-context`. A wrong split just yields two good files, so `plan` errs toward
-splitting; review these if you expected a merge.
+`aux-date-mismatch` (different day), `pcr-discontinuity` (PCR reset/leap — a
+separate session; merging would break seeking), `aux-elapsed-mismatch` /
+`aux-unknown` (cross-source AUX disagrees or is missing), `no-pmt-context`. A
+wrong split just yields two good files, so `plan` errs toward splitting; review
+these if you expected a merge. Raise `--max-pcr-jump-sec` to merge more
+aggressively within a day.
+
+## Duplicate fragments (`hdvrescue dedup`)
+
+A disk-recovery tool can carve the same footage twice, so two spans may cover the
+same recording moment (you'll see two outputs with the same timecode, the second
+suffixed `_a`). `plan` reads no bytes, so it can't tell them apart — run
+`hdvrescue dedup report.json`, which reads just the candidate ranges and reports,
+per shared-timecode group: `identical` / `contained` (a byte-prefix of the longer
+copy — safe to drop the shorter) / `diverges at byte N` (not the same capture past
+there — keep both). Add `--md5` for full hashes. It only reports; you then disable
+the redundant members in `plan.json`.

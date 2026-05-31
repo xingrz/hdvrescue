@@ -1,4 +1,4 @@
-"""hdvrescue command-line interface: scan | plan | build | verify | recover."""
+"""hdvrescue CLI: scan | plan | build | verify | recover | dedup."""
 
 import argparse
 import os
@@ -10,6 +10,7 @@ from . import plan as planmod
 from . import build as buildmod
 from . import verify as verifymod
 from . import recover as recovermod
+from . import dedup as dedupmod
 from . import model
 
 
@@ -102,7 +103,12 @@ def _scan_params(args):
 def _add_plan_knobs(ap):
     ap.add_argument("--max-chain-sec", type=float,
                     default=planmod.DEFAULT_PARAMS["max_chain_sec"],
-                    help="max AUX/PCR gap still chained (default %(default)s)")
+                    help="cross-source: max AUX gap still chained (default %(default)s)")
+    ap.add_argument("--max-pcr-jump-sec", type=float,
+                    default=planmod.DEFAULT_PARAMS["max_pcr_jump_sec"],
+                    help="same-source: merge same-day spans while the PCR clock "
+                         "stays within this many seconds (a larger jump = separate "
+                         "session, kept seekable; default %(default)s)")
     ap.add_argument("--aux-boundary-sec", type=float,
                     default=planmod.DEFAULT_PARAMS["aux_boundary_sec"],
                     help="AUX agreement slack (default %(default)s)")
@@ -113,6 +119,7 @@ def _add_plan_knobs(ap):
 
 def _plan_params(args):
     return {"max_chain_sec": args.max_chain_sec,
+            "max_pcr_jump_sec": args.max_pcr_jump_sec,
             "aux_boundary_sec": args.aux_boundary_sec,
             "min_confidence": args.min_confidence}
 
@@ -201,6 +208,10 @@ def cmd_verify(args):
                           + (["--quiet"] if args.quiet else []))
 
 
+def cmd_dedup(args):
+    return dedupmod.main([args.report] + (["--md5"] if args.md5 else []))
+
+
 def cmd_recover(args):
     if not args.from_plan and not args.from_report:
         for p in args.inputs:
@@ -259,6 +270,13 @@ def build_parser():
                     default="error", help="when an output exists (default error)")
     bp.set_defaults(func=cmd_build)
 
+    dp = sub.add_parser(
+        "dedup", help="byte-verify duplicate fragments in a report.json")
+    dp.add_argument("report", help="report.json from scan")
+    dp.add_argument("--md5", action="store_true",
+                    help="also compute each candidate's full MD5 (slower)")
+    dp.set_defaults(func=cmd_dedup)
+
     vp = sub.add_parser("verify", help="check a TS file for the AUX timecode")
     vp.add_argument("file")
     vp.add_argument("--window-mb", type=int, default=64)
@@ -277,6 +295,8 @@ def build_parser():
     _add_scan_knobs(rp)
     rp.add_argument("--max-chain-sec", type=float,
                     default=planmod.DEFAULT_PARAMS["max_chain_sec"])
+    rp.add_argument("--max-pcr-jump-sec", type=float,
+                    default=planmod.DEFAULT_PARAMS["max_pcr_jump_sec"])
     rp.add_argument("--min-confidence", choices=("low", "medium", "high"),
                     default=planmod.DEFAULT_PARAMS["min_confidence"])
     rp.set_defaults(func=cmd_recover)

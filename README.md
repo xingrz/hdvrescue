@@ -78,20 +78,28 @@ and `build` honours it.
 | `build plan.json -o out/` | Materialize the plan into final `.m2t` files (reads `report.json` beside the plan, or `--report`). |
 | `verify FILE` | Is the Sony AUX recording timecode still readable? Exit `0` yes, `1` no, `2` error. |
 | `recover INPUT… -o out/` | `scan → plan → build` in one pass; `report.json`/`plan.json` are saved in `out/`. |
+| `dedup report.json` | Byte-verify duplicate fragments (same footage carved twice): reports which are `contained`/`identical` (safe to drop) vs `diverges`. |
 
 Key scan knobs: `--cc-tolerance {strict,lenient}` (strict produces more, smaller,
-internally-cleaner spans), `--pcr-jump-sec`, `--aux-boundary-sec`. Key plan knob:
-`--max-chain-sec` (how large an AUX/PCR gap may be and still be chained).
+internally-cleaner spans), `--pcr-jump-sec`, `--aux-boundary-sec`. Key plan knobs:
+`--max-pcr-jump-sec` (within one source, merge same-day footage while the PCR clock
+stays seekable — raise it to merge more aggressively) and `--max-chain-sec` (how
+large an AUX gap may be across carved files and still be chained).
 
 ## What you get
 
 - Outputs named by their AUX recording timecode: `YYYY-MM-DD_HH-MM-SS.m2t`
   (`_a`, `_b`, … on collisions).
 - A recording split across several carved files is reassembled into one output.
+- A camera pause/resume (the AUX timecode jumps but the capture ran on) is kept
+  in one output, not split — and same-day footage stays merged as long as the PCR
+  clock proves the result is still seekable (the scrub bar stays draggable).
 - Over-recorded tape residue and disk-recovery cross-file contamination (real
   footage from a *different* session that the recovery tool spliced in) are
   separated into their own outputs by recording date — not welded into your clip.
 - The `0xA1` AUX stream is byte-preserved, so the recording timecode is intact.
+- When the recovery tool carved the same footage twice, `dedup` byte-verifies the
+  copies so you can drop a confirmed-redundant one with confidence.
 
 ## Documentation
 
